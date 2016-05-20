@@ -11,7 +11,7 @@ Requirements
 * GNU make 4.0+
 * Boost v1.55+ (w/ threading, syntactic analysis and
 		   arg parsind features.)
-* Restbed framework [1]
+* Restbed framework v4.0+ [1]
 * libgmp v6.0+
 
 For testing:
@@ -24,10 +24,9 @@ Compile
 
 Run service
 ---
+  ./fib --help to see usage of the service.
 
-Use ./fib --help to see usage of the service.
-
-Example
+Example:
   ./fib --verbose=2 --cache-size 2000
 This will start the service (at localhost, port 8080)
 and pre-initialize internal cache with first

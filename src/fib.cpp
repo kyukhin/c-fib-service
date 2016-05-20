@@ -1,12 +1,8 @@
-  /* TODO:
-   v 1. cmd line arguments.
-   v 2. extract Fib step.
-   v 3. code style.
-     4. apply tests.
-     5. review.  */
 #include <sstream>
 #include <memory>
 #include <cstdlib>
+
+/*  Restbed stuff.  */
 #include <restbed>
 
 /*  Boost stuff.  */
@@ -24,10 +20,20 @@ using namespace restbed;
 using namespace boost::multiprecision;
 namespace po = boost::program_options;
 
+/*  Standard JSON separator.  */
 const std::string space = ", ";
+
+/*  Default service name.  */
 string service_name = "fib";
+
+/* Logger.  */
 LogLevel Log::reportingLevel;
 
+/* Perform single step of Fibonacci list calculation.
+   Input: p1, p2
+   Set: p1 = p1 + p2, p1 = p2;
+   Returd: initial p1
+*/
 mpz_int
 make_fib_step (mpz_int &prev_1, mpz_int &prev_2)
 {
@@ -37,6 +43,8 @@ make_fib_step (mpz_int &prev_1, mpz_int &prev_2)
   return prev_1;
 }
 
+/* Class which implements Fibonacci numbers caching.
+   Designed to be thread-safe.  */
 class fib_cache
 {
 protected:
@@ -54,6 +62,7 @@ public:
 		 initialized_cnt (0),
 		 limit_cnt (0) {}
 
+  /*  Initialize cache. Reserve memory.  */
   void
   init (unsigned cnt)
   {
@@ -65,13 +74,16 @@ public:
     data = "[";
   }
 
+  /*  Getters.  */
   string& d () { return data; }
   vector<unsigned> di () { return data_idx; }
   unsigned limit () { return limit_cnt; }
 
-  unsigned
+  /*  Estimate biffer length for the sequence up to `arg` num.  */
+  static unsigned
   estimate_fib_str_size (unsigned fib_num)
   {
+    /* ESTIMATE = LOG (Golden ration) * [ N * (N + 1) / 2 ] + N + N * space  */
     double lphi = log ((sqrt (5.d) + 1) / 2.d) / log (10); /* LOG (Golden ratio). */
 
     LOGD << static_cast<double> ((fib_num * (fib_num + 1)) / 2) * lphi;
@@ -80,6 +92,7 @@ public:
 	   + fib_num + fib_num * space.size ();
   }
 
+  /*  Add entry to the buffer. Needs write lock.  */
   void
   add_entry (mpz_int e)
   {
@@ -90,6 +103,7 @@ public:
     LOGD << "Add entry.  New idx: " << data_idx [data_idx.size () - 1];
   }
 
+  /* Get current values. Needs read lock.  */
   void
   read_cur_vals (unsigned &ic, mpz_int &p1, mpz_int &p2)
   {
@@ -99,6 +113,9 @@ public:
     p2 = prev_2;
   }
 
+  /* Update cache if there're still un-calculated entries and
+     we're not out of limits.
+     If cache is full - simply return number of entries available.  */
   unsigned
   maybe_calc_fib (unsigned num, mpz_int &p1, mpz_int &p2)
   {
@@ -134,6 +151,7 @@ public:
 
 class fib_cache the_cache;
 
+/*  Main worker.  */
 void
 get_method_handler (const shared_ptr<Session> session)
 {
@@ -176,9 +194,11 @@ get_method_handler (const shared_ptr<Session> session)
     {
       LOGD << "Result was fully cached.";
 
+      /*  No need for lock here: containers won't be reallocated.  */
       LOGD << "Idx is: " << the_cache.di ()[fib_num - 1];
       session->close (OK, the_cache.d ().substr (0, the_cache.di ()[fib_num - 1]) + "]",
 		      {{ "Content-Length", to_string (the_cache.di ()[fib_num - 1] + 1)},
+		       { "Cache-control", string ("max-age=") + to_string (3600 * 24 * 31)},
 		       { "Connection", "close" }});
       return;
     }
@@ -214,6 +234,7 @@ get_method_handler (const shared_ptr<Session> session)
       res += "]";
       session->close (OK, res,
 		      {{ "Content-Length", to_string (res.size ())},
+		       { "Cache-control", string ("max-age=") + to_string (3600 * 24 * 31)},
 		       { "Connection", "close" }});
       return;
     }
@@ -268,6 +289,7 @@ main (const int ac, const char** av)
 
   the_cache.init (cache_size);
 
+  /* Restbed stuff.  */
   auto resource = make_shared<Resource> ();
   resource->set_path (service_name + "/.*");
   resource->set_method_handler ("GET", get_method_handler);

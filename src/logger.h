@@ -7,6 +7,8 @@
 #define LOGD Log().Get(logDEBUG)
 #define LOGI Log().Get(logINFO)
 
+
+/* Simple logging infra.  */
 enum LogLevel {logERROR,
 	       logWARNING,
 	       logINFO,
@@ -31,7 +33,6 @@ class Log
 std::ostringstream&
 Log::Get (LogLevel level)
 {
-  os << " " << std::to_string (level) << ": ";
   messageLevel = level;
   return os;
 }
@@ -41,7 +42,7 @@ Log::~Log ()
   if (messageLevel <= reportingLevel)
     {
       os << std::endl;
-      fprintf (stderr, "%d  %s", reportingLevel, os.str ().c_str ());
+      fprintf (stderr, "%s", os.str ().c_str ());
       fflush (stderr);
     }
 }
