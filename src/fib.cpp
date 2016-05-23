@@ -11,8 +11,6 @@
 #include <boost/multiprecision/gmp.hpp>
 #include <boost/thread/shared_mutex.hpp>
 
-#include "logger.h"
-
 #define BOOST_LOG_DYN_LINK 1
 
 using namespace std;
@@ -26,8 +24,33 @@ const std::string space = ", ";
 /*  Default service name.  */
 string service_name = "fib";
 
-/* Logger.  */
-LogLevel Log::reportingLevel;
+/* Simple logging infra.  */
+enum LogLevel {logERROR,
+	       logWARNING,
+	       logINFO,
+	       logDEBUG};
+// LogLevel fib_log_level = logWARNING;
+LogLevel fib_log_level = logINFO;
+
+class NullBuffer : public std::streambuf
+{
+public:
+  int overflow(int c) { return c; }
+} null_buffer;
+
+std::ostream null_stream (&null_buffer);
+
+ostream&
+log_get_stream (LogLevel l)
+{
+  if (l <= fib_log_level)
+    return std::cerr;
+  else
+    return null_stream;
+}
+
+#define LOGD log_get_stream (logDEBUG)
+#define LOGI log_get_stream (logINFO)
 
 /* Perform single step of Fibonacci list calculation.
    Input: p1, p2
@@ -47,7 +70,7 @@ make_fib_step (mpz_int &prev_1, mpz_int &prev_2)
    Designed to be thread-safe.  */
 class fib_cache
 {
-protected:
+private:
   boost::shared_mutex data_mtx;
   string data;
   vector <unsigned> data_idx;
@@ -67,7 +90,7 @@ public:
   init (unsigned cnt)
   {
     unsigned est = estimate_fib_str_size (cnt) + 1; /*  +1 is '['.  */
-    LOGD << "Estimated cache size for " << cnt << " Fibonacci numbers:" << est << " chars.";
+    LOGD << "Estimated cache size for " << cnt << " Fibonacci numbers:" << est << " chars." << endl;
     data.reserve (est);
     data_idx.reserve (cnt);
     limit_cnt = cnt;
@@ -75,9 +98,9 @@ public:
   }
 
   /*  Getters.  */
-  string& d () { return data; }
-  vector<unsigned> di () { return data_idx; }
-  unsigned limit () { return limit_cnt; }
+  const string& d () const            { return data; }
+  const vector<unsigned>& di () const { return data_idx; }
+  unsigned limit ()                   { return limit_cnt; }
 
   /*  Estimate biffer length for the sequence up to `arg` num.  */
   static unsigned
@@ -86,7 +109,7 @@ public:
     /* ESTIMATE = LOG (Golden ration) * [ N * (N + 1) / 2 ] + N + N * space  */
     double lphi = log ((sqrt (5.d) + 1) / 2.d) / log (10); /* LOG (Golden ratio). */
 
-    LOGD << static_cast<double> ((fib_num * (fib_num + 1)) / 2) * lphi;
+    LOGD << static_cast<double> ((fib_num * (fib_num + 1)) / 2) * lphi << endl;
 
     return static_cast <unsigned> (static_cast<double> ((fib_num * (fib_num + 1)) / 2) * lphi)
 	   + fib_num + fib_num * space.size ();
@@ -100,7 +123,7 @@ public:
     data_idx.push_back (data.size () - space.size ());
 
     ++initialized_cnt;
-    LOGD << "Add entry.  New idx: " << data_idx [data_idx.size () - 1];
+    LOGD << "Add entry.  New idx: " << data_idx [data_idx.size () - 1] << endl;
   }
 
   /* Get current values. Needs read lock.  */
@@ -155,14 +178,14 @@ class fib_cache the_cache;
 void
 get_method_handler (const shared_ptr<Session> session)
 {
-  LOGD << session->get_request ()->get_path ();
+  LOGD << session->get_request ()->get_path () << endl;
 
   string num_str = session->get_request ()->get_path ();
   int fib_num;
 
   num_str = num_str.substr (service_name.size (), num_str.size ());
 
-  LOGD << "Request is: " << num_str;
+  LOGD << "Request is: " << num_str << endl;
 
   try
     {
@@ -186,16 +209,16 @@ get_method_handler (const shared_ptr<Session> session)
       return;
     }
 
-  LOGD << "Parsed number is " << fib_num;
+  LOGD << "Parsed number is " << fib_num << endl;
 
   mpz_int prev_1;
   mpz_int prev_2;
   if (the_cache.maybe_calc_fib (fib_num, prev_1, prev_2) == fib_num)
     {
-      LOGD << "Result was fully cached.";
+      LOGD << "Result was fully cached." << endl;
 
       /*  No need for lock here: containers won't be reallocated.  */
-      LOGD << "Idx is: " << the_cache.di ()[fib_num - 1];
+      LOGD << "Idx is: " << the_cache.di ()[fib_num - 1] << endl;
       session->close (OK, the_cache.d ().substr (0, the_cache.di ()[fib_num - 1]) + "]",
 		      {{ "Content-Length", to_string (the_cache.di ()[fib_num - 1] + 1)},
 		       { "Cache-control", string ("max-age=") + to_string (3600 * 24 * 31)},
@@ -204,10 +227,11 @@ get_method_handler (const shared_ptr<Session> session)
     }
   else
     {
-      LOGD << "Result wasn't fully cached.  Need to calc " << fib_num - the_cache.limit () << " extra numbers.";
+      LOGD << "Result wasn't fully cached.  Need to calc "
+	   << fib_num - the_cache.limit () << " extra numbers." << endl;
 
       unsigned est = the_cache.estimate_fib_str_size (fib_num) + 1; /*  +2 is '[' and ']'.  */
-      LOGD << "Estimated size for " << fib_num << " Fibonacci numbers:" << est << " chars.";
+      LOGD << "Estimated size for " << fib_num << " Fibonacci numbers:" << est << " chars." << endl;
       string res;
       res.reserve (est);
       res = the_cache.d ().substr (0, the_cache.d ().size () - space.size ());
@@ -274,18 +298,18 @@ main (const int ac, const char** av)
   if (service_name[service_name.size () - 1] != '/')
     service_name += '/';
 
-  Log::reportingLevel = logINFO;
+  fib_log_level = logINFO;
   switch (verbosity)
     {
-    case 0: Log::reportingLevel = logWARNING; break;
-    case 1: Log::reportingLevel = logINFO; break;
-    case 2: Log::reportingLevel = logDEBUG; break;
+    case 0: fib_log_level = logWARNING; break;
+    case 1: fib_log_level = logINFO; break;
+    case 2: fib_log_level = logDEBUG; break;
     }
 
-  LOGI << "Verbosity is: " << verbosity;
-  LOGI << "Threads num is:" << num_thr;
-  LOGI << "Fib sequence length cached is:" << cache_size;
-  LOGI << "Service will run @ " << service_name << ", port " << port;
+  LOGI << "Verbosity is: " << verbosity << endl;
+  LOGI << "Threads num is:" << num_thr << endl;
+  LOGI << "Fib sequence length cached is:" << cache_size << endl;
+  LOGI << "Service will run @ " << service_name << ", port " << port << endl;
 
   the_cache.init (cache_size);
 
